@@ -1,6 +1,8 @@
-# 🛡️ AntiTelguard
-
-> **Privacy-First Telegram Threat Intelligence & Anti-Malware Bot with Web Dashboard**
+<div align="center">
+  <img src="assets/icon.png" width="128" height="128" alt="AntiTelguard Icon" style="border-radius: 28px;" />
+  <h1>AntiTelguard</h1>
+  <p><b>Privacy-First Telegram Threat Intelligence & Anti-Malware Appliance with Web Dashboard</b></p>
+</div>
 
 AntiTelguard is a self-hostable Telegram guard bot that protects Telegram groups and private chats by inspecting incoming **files** and **URLs** against threat intelligence providers (such as VirusTotal).
 
