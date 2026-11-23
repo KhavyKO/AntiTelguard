@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AntiTelguard — Threat Intelligence Console</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2306b6d4'%3E%3Cpath d='M12 2L4 5v6.09c0 5.05 3.41 9.76 8 10.91 4.59-1.15 8-5.86 8-10.91V5l-8-3zm0 2.18l6 2.25v4.66c0 4.13-2.73 7.97-6 9-3.27-1.03-6-4.87-6-9V6.43l6-2.25zM11 7v2h2V7h-2zm0 4v6h2v-6h-2z'/%3E%3C/svg%3E">
+    
+    <!-- Deliberate Typography: Plus Jakarta Sans (UI) & JetBrains Mono (Data/Monospace) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+                        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
+                    },
+                    colors: {
+                        zinc: {
+                            950: '#09090b',
+                            900: '#121215',
+                            850: '#18181b',
+                            800: '#27272a',
+                            700: '#3f3f46',
+                            600: '#52525b',
+                            500: '#71717a',
+                            400: '#a1a1aa',
+                            300: '#d4d4d8',
+                            100: '#f4f4f5',
+                            50: '#fafafa'
+                        },
+                        accent: {
+                            DEFAULT: '#06b6d4',
+                            hover: '#0891b2',
+                            muted: '#0e3a47'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        [x-cloak] { display: none !important; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: #09090b; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col font-sans selection:bg-cyan-500/20 selection:text-cyan-300" x-data="dashboardApp()" x-init="init()">
+
+    <!-- Top Navigation Bar -->
+    <header class="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
+            
+            <!-- Left Brand Identity -->
+            <div class="flex items-center space-x-3">
+                <div class="w-7 h-7 rounded border border-zinc-700 bg-zinc-850 flex items-center justify-center text-cyan-400">
+                    <i class="fa-solid fa-shield-halved text-xs"></i>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="font-bold text-sm tracking-tight text-zinc-100 font-mono">AntiTelguard</span>
+                    <span class="text-[10px] font-mono uppercase tracking-widest text-zinc-500 hidden sm:inline">/ console</span>
+                    <span class="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded border border-zinc-800 bg-zinc-850 text-zinc-400">v1.0.0</span>
+                </div>
+            </div>
+
+            <!-- Right System State Controls -->
+            <div class="flex items-center space-x-3">
+                
+                <!-- Status Pill -->
+                <div class="flex items-center space-x-2 px-2.5 py-1 rounded border text-xs font-mono font-medium"
+                     :class="{
+                         'bg-emerald-950/40 border-emerald-800/80 text-emerald-400': botStatus.status === 'RUNNING',
+                         'bg-amber-950/40 border-amber-800/80 text-amber-400': botStatus.status === 'AWAITING_CONFIG' || botStatus.status === 'STARTING',
+                         'bg-red-950/40 border-red-800/80 text-red-400': botStatus.status === 'ERROR' || botStatus.status === 'STOPPED'
+                     }">
+                    <span class="w-1.5 h-1.5 rounded-full"
+                          :class="{
+                              'bg-emerald-400 animate-pulse': botStatus.status === 'RUNNING',
+                              'bg-amber-400 animate-pulse': botStatus.status === 'AWAITING_CONFIG' || botStatus.status === 'STARTING',
+                              'bg-red-400': botStatus.status === 'ERROR' || botStatus.status === 'STOPPED'
+                          }"></span>
+                    <span x-text="botStatus.status"></span>
+                    <template x-if="botStatus.bot_info && botStatus.bot_info.username">
+                        <span class="text-zinc-500 font-normal">@<span x-text="botStatus.bot_info.username"></span></span>
+                    </template>
+                </div>
+
+                <!-- Action Button -->
+                <button @click="triggerBot(botStatus.status === 'RUNNING' ? 'restart' : 'start')"
+                        :disabled="saving"
+                        class="h-7 px-2.5 rounded border border-zinc-700 bg-zinc-850 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 text-xs font-mono transition flex items-center gap-1.5"
+                        :title="botStatus.status === 'RUNNING' ? 'Restart Bot' : 'Start Bot'">
+                    <i class="fa-solid fa-play text-[10px] text-emerald-400" x-show="botStatus.status !== 'RUNNING'"></i>
+                    <i class="fa-solid fa-rotate-right text-[10px]" x-show="botStatus.status === 'RUNNING'"></i>
+                    <span class="text-[11px]" x-text="botStatus.status === 'RUNNING' ? 'Restart' : 'Start'"></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-5">
+        
+        <!-- Alerts -->
+        <template x-if="botStatus.status === 'AWAITING_CONFIG'">
+            <div class="mb-4 px-3.5 py-2.5 rounded border border-amber-900/80 bg-amber-950/30 flex items-start space-x-2.5 text-amber-200">
+                <i class="fa-solid fa-circle-exclamation text-amber-400 mt-0.5 text-xs"></i>
+                <div class="text-xs">
+                    <span class="font-semibold">Setup Required:</span> Configure your Telegram Bot Token and VirusTotal API key in Engine Configuration to activate monitoring.
+                </div>
+            </div>
+        </template>
+
+        <template x-if="botStatus.status === 'ERROR'">
+            <div class="mb-4 px-3.5 py-2.5 rounded border border-red-900/80 bg-red-950/30 flex items-start space-x-2.5 text-red-200">
+                <i class="fa-solid fa-triangle-exclamation text-red-400 mt-0.5 text-xs"></i>
+                <div class="text-xs">
+                    <span class="font-semibold">Execution Error:</span> <span x-text="botStatus.error_message"></span>
+                </div>
+            </div>
+        </template>
+
+        <!-- High-Density Metrics Bar -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-px bg-zinc-800 border border-zinc-800 rounded-md overflow-hidden mb-6">
+            <div class="bg-zinc-900 p-4">
+                <div class="flex items-center justify-between text-zinc-500 font-mono text-[11px] uppercase tracking-wider">
+                    <span>Total Scanned</span>
+                    <i class="fa-solid fa-radar text-zinc-600 text-xs"></i>
+                </div>
+                <div class="mt-1 text-2xl font-mono font-semibold text-zinc-100 tracking-tight" x-text="stats.total_scans">0</div>
+                <div class="mt-0.5 text-[11px] text-zinc-500">Files & URLs analyzed</div>
+            </div>
+
+            <div class="bg-zinc-900 p-4">
+                <div class="flex items-center justify-between text-zinc-500 font-mono text-[11px] uppercase tracking-wider">
+                    <span>Threats Flagged</span>
+                    <i class="fa-solid fa-bug text-red-500/80 text-xs"></i>
+                </div>
+                <div class="mt-1 text-2xl font-mono font-semibold text-red-400 tracking-tight" x-text="stats.total_threats">0</div>
+                <div class="mt-0.5 text-[11px] text-zinc-500">Malicious detections</div>
+            </div>
+
+            <div class="bg-zinc-900 p-4">
+                <div class="flex items-center justify-between text-zinc-500 font-mono text-[11px] uppercase tracking-wider">
+                    <span>Files Streamed</span>
+                    <i class="fa-solid fa-file-shield text-cyan-500/80 text-xs"></i>
+                </div>
+                <div class="mt-1 text-2xl font-mono font-semibold text-cyan-400 tracking-tight" x-text="stats.total_files">0</div>
+                <div class="mt-0.5 text-[11px] text-zinc-500">Zero-disk RAM hashes</div>
+            </div>
+
+            <div class="bg-zinc-900 p-4">
+                <div class="flex items-center justify-between text-zinc-500 font-mono text-[11px] uppercase tracking-wider">
+                    <span>URLs Inspected</span>
+                    <i class="fa-solid fa-link text-emerald-500/80 text-xs"></i>
+                </div>
+                <div class="mt-1 text-2xl font-mono font-semibold text-emerald-400 tracking-tight" x-text="stats.total_urls">0</div>
+                <div class="mt-0.5 text-[11px] text-zinc-500">Direct query & scans</div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="border-b border-zinc-800 mb-5 flex space-x-1 sm:space-x-6 text-xs font-medium">
+            <button @click="activeTab = 'logs'"
+                    :class="activeTab === 'logs' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent'"
+                    class="pb-2.5 px-1 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-table-list text-xs"></i>
+                <span>Live Audit Feed</span>
+            </button>
+            
+            <button @click="activeTab = 'settings'"
+                    :class="activeTab === 'settings' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent'"
+                    class="pb-2.5 px-1 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-sliders text-xs"></i>
+                <span>Engine Configuration</span>
+            </button>
+            
+            <button @click="activeTab = 'privacy'"
+                    :class="activeTab === 'privacy' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent'"
+                    class="pb-2.5 px-1 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-shield-cat text-xs"></i>
+                <span>Privacy Architecture</span>
+            </button>
+            
+            <button @click="activeTab = 'about'"
+                    :class="activeTab === 'about' ? 'text-cyan-400 border-b-2 border-cyan-400 font-semibold' : 'text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent'"
+                    class="pb-2.5 px-1 transition flex items-center gap-1.5">
+                <i class="fa-solid fa-circle-info text-xs"></i>
+                <span>About</span>
+            </button>
+        </div>
+
+        <!-- TAB 1: Live Audit Feed -->
+        <div x-show="activeTab === 'logs'" x-cloak>
+            <div class="bg-zinc-900 border border-zinc-800 rounded-md overflow-hidden">
+                <div class="px-4 py-2.5 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/60">
+                    <div class="flex items-center gap-2 text-xs font-mono text-zinc-300">
+                        <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                        <span>SCAN_EVENTS_STREAM</span>
+                    </div>
+                    <button @click="fetchLogs()" class="text-[11px] font-mono px-2 py-1 bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-arrows-rotate text-[10px]"></i> Refresh
+                    </button>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-xs">
+                        <thead class="bg-zinc-950/70 uppercase tracking-wider text-[10px] font-mono text-zinc-400 border-b border-zinc-800">
+                            <tr>
+                                <th class="px-3.5 py-2.5 font-semibold">Timestamp</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Type</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Target / File</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Verdict</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Detections</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Action</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Chat Origin</th>
+                                <th class="px-3.5 py-2.5 font-semibold">Sender</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-zinc-800/80 font-mono text-[11px]">
+                            <template x-for="event in events" :key="event.id">
+                                <tr class="hover:bg-zinc-850/60 transition">
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap text-zinc-400" x-text="event.timestamp"></td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap">
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold border"
+                                              :class="event.event_type === 'FILE' ? 'bg-cyan-950/50 text-cyan-300 border-cyan-800/80' : 'bg-emerald-950/50 text-emerald-300 border-emerald-800/80'"
+                                              x-text="event.event_type"></span>
+                                    </td>
+                                    <td class="px-3.5 py-2.5 max-w-xs truncate text-zinc-200" :title="event.target" x-text="event.target"></td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap">
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold border"
+                                              :class="{
+                                                  'bg-red-950/60 text-red-400 border-red-800': event.verdict === 'THREAT',
+                                                  'bg-emerald-950/60 text-emerald-400 border-emerald-800': event.verdict === 'CLEAN',
+                                                  'bg-zinc-800 text-zinc-300 border-zinc-700': event.verdict === 'UNKNOWN',
+                                                  'bg-amber-950/60 text-amber-400 border-amber-800': event.verdict === 'ERROR'
+                                              }"
+                                              x-text="event.verdict"></span>
+                                    </td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap">
+                                        <span :class="event.malicious_count > 0 ? 'text-red-400 font-semibold' : 'text-zinc-500'">
+                                            <span x-text="event.malicious_count"></span> Mal / <span x-text="event.suspicious_count"></span> Susp
+                                        </span>
+                                    </td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap text-zinc-400 text-[10px]" x-text="event.action_taken"></td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap text-zinc-300 font-sans" x-text="event.chat_title"></td>
+                                    <td class="px-3.5 py-2.5 whitespace-nowrap text-cyan-300">
+                                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-zinc-800 bg-zinc-950 text-[10px]">
+                                            <i class="fa-regular fa-user text-[9px] text-zinc-500"></i>
+                                            <span x-text="event.sender || 'Unknown'"></span>
+                                        </span>
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-if="events.length === 0">
+                                <tr>
+                                    <td colspan="8" class="px-4 py-8 text-center text-zinc-500 font-sans text-xs">
+                                        No threat events recorded yet. Bot is actively listening for incoming files and links.
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: Engine Configuration -->
+        <div x-show="activeTab === 'settings'" x-cloak class="space-y-4">
+            <form @submit.prevent="saveConfiguration()" class="space-y-4">
+
+                <!-- 1. Telegram Settings Card -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-md p-4 space-y-3">
+                    <div class="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-brands fa-telegram text-cyan-400 text-sm"></i>
+                            <h3 class="font-semibold text-xs text-zinc-200 uppercase tracking-wider font-mono">Telegram Bot Authentication</h3>
+                        </div>
+                        <button type="button" @click="testTelegram()" :disabled="testingTG" class="text-[11px] font-mono px-2.5 py-1 bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-plug text-[10px]" :class="{'fa-spin': testingTG}"></i> Test Connection
+                        </button>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-mono text-zinc-400 mb-1">TELEGRAM_BOT_TOKEN</label>
+                        <input type="password" x-model="config.telegram_bot_token" placeholder="123456789:ABCDefghIJKLmnOPQRstuvWXYZ" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono transition">
+                        <p class="text-[11px] text-zinc-500 mt-1">Execute <code>/setprivacy</code> in @BotFather and choose <b>Disable</b> so your bot can inspect group chat files.</p>
+                    </div>
+
+                    <template x-if="tgTestResult">
+                        <div class="p-2.5 rounded border text-xs font-mono" :class="tgTestResult.valid ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-300' : 'bg-red-950/30 border-red-800/80 text-red-300'">
+                            <span x-show="tgTestResult.valid">
+                                ✓ Connected: @<span x-text="tgTestResult.username"></span> (<span x-text="tgTestResult.first_name"></span>).
+                                <span x-show="!tgTestResult.can_read_all_group_messages" class="block mt-1 text-amber-400">
+                                    [WARN] Group Privacy Mode is ON in @BotFather. Files will not be received until disabled.
+                                </span>
+                            </span>
+                            <span x-show="!tgTestResult.valid" x-text="tgTestResult.error"></span>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 2. Threat Intel APIs Card -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-md p-4 space-y-3">
+                    <div class="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-server text-cyan-400 text-sm"></i>
+                            <h3 class="font-semibold text-xs text-zinc-200 uppercase tracking-wider font-mono">Threat Intelligence Providers</h3>
+                        </div>
+                        <button type="button" @click="testVirusTotal()" :disabled="testingVT" class="text-[11px] font-mono px-2.5 py-1 bg-zinc-850 hover:bg-zinc-800 border border-zinc-700 rounded text-zinc-300 transition flex items-center gap-1.5">
+                            <i class="fa-solid fa-plug text-[10px]" :class="{'fa-spin': testingVT}"></i> Test VT Key
+                        </button>
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-mono text-zinc-400 mb-1">VIRUSTOTAL_API_KEY (v3)</label>
+                        <input type="password" x-model="config.virustotal_api_key" placeholder="64-character hexadecimal key" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono transition">
+                        <p class="text-[11px] text-zinc-500 mt-1">VirusTotal free tier limit is 4 req/min. AntiTelguard's 24h internal TTL cache prevents burning quota on duplicate items.</p>
+                    </div>
+
+                    <template x-if="vtTestResult !== null">
+                        <div class="p-2.5 rounded border text-xs font-mono" :class="vtTestResult.valid ? 'bg-emerald-950/30 border-emerald-800/80 text-emerald-300' : 'bg-red-950/30 border-red-800/80 text-red-300'">
+                            <span x-show="vtTestResult.valid">✓ VirusTotal API Key verified. Quota route active.</span>
+                            <span x-show="!vtTestResult.valid" x-text="vtTestResult.error || 'Failed to authenticate with VirusTotal.'"></span>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- 3. Policy & Reaction Rules Card -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-md p-4 space-y-3">
+                    <div class="border-b border-zinc-800 pb-2.5">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-scale-balanced text-cyan-400 text-sm"></i>
+                            <h3 class="font-semibold text-xs text-zinc-200 uppercase tracking-wider font-mono">Detection Policies & Quarantine Actions</h3>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[11px] font-mono text-zinc-400 mb-1">MALICIOUS_DETECTION_THRESHOLD</label>
+                            <input type="number" x-model.number="config.malicious_threshold" min="1" max="50" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono">
+                            <span class="text-[11px] text-zinc-500">Minimum AV vendor engines required to flag threat (Default: 1).</span>
+                        </div>
+
+                        <div>
+                            <label class="block text-[11px] font-mono text-zinc-400 mb-1">THREAT_ACTION</label>
+                            <select x-model="config.threat_action" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono">
+                                <option value="REPLY_ALERT">REPLY_ALERT — Reply warning card to message</option>
+                                <option value="DELETE_AND_ALERT">DELETE_AND_ALERT — Delete post & alert chat</option>
+                                <option value="REACT_ONLY">REACT_ONLY — Apply warning reaction only</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-zinc-800/80">
+                        <div>
+                            <label class="block text-[11px] font-mono text-zinc-400 mb-1">CLEAN_REACTION_EMOJI</label>
+                            <input type="text" x-model="config.clean_reaction" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-mono text-zinc-400 mb-1">THREAT_REACTION_EMOJI</label>
+                            <input type="text" x-model="config.threat_reaction" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-mono text-zinc-400 mb-1">UNKNOWN_REACTION_EMOJI</label>
+                            <input type="text" x-model="config.unknown_reaction" class="w-full bg-zinc-950 border border-zinc-800 rounded px-3 py-1.5 text-xs text-zinc-100 focus:outline-none focus:border-cyan-500 font-mono">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2.5 border-t border-zinc-800/80">
+                        <label class="flex items-center space-x-2.5 cursor-pointer">
+                            <input type="checkbox" x-model="config.scan_files" class="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-0 bg-zinc-950 border-zinc-700">
+                            <span class="text-xs text-zinc-300 font-mono">SCAN_INCOMING_FILES (In-Memory RAM Stream)</span>
+                        </label>
+                        <label class="flex items-center space-x-2.5 cursor-pointer">
+                            <input type="checkbox" x-model="config.scan_urls" class="w-3.5 h-3.5 rounded text-cyan-600 focus:ring-0 bg-zinc-950 border-zinc-700">
+                            <span class="text-xs text-zinc-300 font-mono">SCAN_INCOMING_URLS (Direct Base64 Identifier)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Save Button -->
+                <div class="flex justify-end pt-1">
+                    <button type="submit" :disabled="saving" class="px-4 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-zinc-950 font-semibold text-xs font-mono transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk text-xs" :class="{'fa-spin': saving}"></i>
+                        <span x-text="saving ? 'APPLYING_CONFIG...' : 'SAVE & HOT-RELOAD BOT'"></span>
+                    </button>
+                </div>
+
+            </form>
+        </div>
+
+        <!-- TAB 3: Privacy Architecture -->
+        <div x-show="activeTab === 'privacy'" x-cloak class="space-y-4">
+            <div class="bg-zinc-900 border border-zinc-800 rounded-md p-5 space-y-3">
+                <div class="flex items-center gap-2">
+                    <i class="fa-solid fa-shield-cat text-cyan-400 text-sm"></i>
+                    <h3 class="text-xs font-mono font-semibold uppercase tracking-wider text-zinc-200">Zero-Disk Privacy Model</h3>
+                </div>
+                <p class="text-xs text-zinc-400 leading-relaxed max-w-3xl">
+                    AntiTelguard enforces strict volatile data retention policies. When deployed in community or enterprise environments, chat participants' files are protected by design:
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+                    <div class="bg-zinc-950 border border-zinc-800 p-3.5 rounded">
+                        <div class="text-cyan-400 text-xs font-mono font-semibold mb-1 flex items-center gap-1.5">
+                            <i class="fa-solid fa-microchip text-[11px]"></i> IN_MEMORY_STREAM
+                        </div>
+                        <p class="text-[11px] text-zinc-400 leading-normal">
+                            Incoming file chunks (64KB) are pumped directly into <code>hashlib.sha256()</code> in RAM. Zero bytes are written to persistent storage or <code>/tmp</code>.
+                        </p>
+                    </div>
+
+                    <div class="bg-zinc-950 border border-zinc-800 p-3.5 rounded">
+                        <div class="text-emerald-400 text-xs font-mono font-semibold mb-1 flex items-center gap-1.5">
+                            <i class="fa-solid fa-ban text-[11px]"></i> NO_FILE_UPLOADS
+                        </div>
+                        <p class="text-[11px] text-zinc-400 leading-normal">
+                            Only the 64-character SHA-256 digest is transmitted to VirusTotal. Unrecognized files are never submitted to public feeds without explicit instruction.
+                        </p>
+                    </div>
+
+                    <div class="bg-zinc-950 border border-zinc-800 p-3.5 rounded">
+                        <div class="text-amber-400 text-xs font-mono font-semibold mb-1 flex items-center gap-1.5">
+                            <i class="fa-solid fa-lock text-[11px]"></i> SELF_SOVEREIGN
+                        </div>
+                        <p class="text-[11px] text-zinc-400 leading-normal">
+                            Hosted entirely on your own container infrastructure. Telemetry, tokens, and audit trails remain isolated inside your local <code>data/</code> volume.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: About App & Developer -->
+        <div x-show="activeTab === 'about'" x-cloak class="space-y-4">
+            
+            <!-- Developer Spotlight Card -->
+            <div class="bg-zinc-900 border border-zinc-800 rounded-md p-5 relative overflow-hidden">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
+                    <div class="flex items-start space-x-3.5">
+                        <div class="w-10 h-10 rounded border border-zinc-700 bg-zinc-850 flex items-center justify-center text-cyan-400 flex-shrink-0">
+                            <i class="fa-solid fa-terminal text-sm"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-sm font-semibold text-zinc-100 font-mono tracking-tight">Khavy</h3>
+                                <span class="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border border-cyan-800/80 bg-cyan-950/40 text-cyan-300">Creator & Lead Architect</span>
+                            </div>
+                            <p class="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
+                                Lead offensive security operator, red team architect, and automation engineer. For vulnerability research, penetration testing walkthroughs, and practical defensive tradecraft, visit the primary security hub.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="flex-shrink-0">
+                        <a href="https://cybertips.tech" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-zinc-700 bg-zinc-850 hover:bg-zinc-800 text-zinc-200 text-xs font-mono transition">
+                            <i class="fa-solid fa-globe text-xs text-cyan-400"></i>
+                            <span>cybertips.tech</span>
+                            <i class="fa-solid fa-arrow-up-right-from-square text-[9px] text-zinc-500"></i>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="mt-4 pt-3.5 border-t border-zinc-800 flex flex-wrap gap-x-5 gap-y-2 text-[11px] font-mono text-zinc-400">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-cyan-500">TAG:</span>
+                        <span>Threat Intelligence & VAPT</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-cyan-500">TAG:</span>
+                        <span>Malware Analysis & Evasion Research</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-cyan-500">TAG:</span>
+                        <span>Defensive Automation</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- App Details & Specs Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- App Overview Card -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-md p-4 space-y-2.5">
+                    <h4 class="text-xs font-mono font-semibold uppercase tracking-wider text-zinc-200 flex items-center gap-1.5">
+                        <i class="fa-solid fa-shield-halved text-cyan-400 text-xs"></i> System Mission
+                    </h4>
+                    <p class="text-xs text-zinc-400 leading-relaxed">
+                        <b>AntiTelguard</b> is a self-hostable threat detection appliance designed to defend Telegram groups and operational channels against malicious attachments, ransomware payloads, trojans, and phishing links.
+                    </p>
+                    <div class="space-y-1.5 pt-1 text-[11px] text-zinc-400 font-mono">
+                        <div class="flex items-center gap-2">
+                            <span class="text-cyan-400">»</span>
+                            <span>Real-time file and hyperlink stream triage</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-cyan-400">»</span>
+                            <span>Multi-engine VirusTotal API v3 integration</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-cyan-400">»</span>
+                            <span>Automated emoji reactions & message quarantine</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Technical Specs & Engine Stack -->
+                <div class="bg-zinc-900 border border-zinc-800 rounded-md p-4 space-y-2.5">
+                    <h4 class="text-xs font-mono font-semibold uppercase tracking-wider text-zinc-200 flex items-center gap-1.5">
+                        <i class="fa-solid fa-layer-group text-cyan-400 text-xs"></i> Specifications
+                    </h4>
+                    <div class="grid grid-cols-2 gap-2 pt-0.5">
+                        <div class="p-2 rounded bg-zinc-950 border border-zinc-800">
+                            <span class="text-[9px] uppercase font-mono text-zinc-500 font-semibold block">Runtime</span>
+                            <span class="text-xs font-mono text-zinc-200">Python 3.11 / FastAPI</span>
+                        </div>
+                        <div class="p-2 rounded bg-zinc-950 border border-zinc-800">
+                            <span class="text-[9px] uppercase font-mono text-zinc-500 font-semibold block">Bot Engine</span>
+                            <span class="text-xs font-mono text-zinc-200">aiogram 3.x (Async)</span>
+                        </div>
+                        <div class="p-2 rounded bg-zinc-950 border border-zinc-800">
+                            <span class="text-[9px] uppercase font-mono text-zinc-500 font-semibold block">Intelligence</span>
+                            <span class="text-xs font-mono text-zinc-200">VirusTotal API v3</span>
+                        </div>
+                        <div class="p-2 rounded bg-zinc-950 border border-zinc-800">
+                            <span class="text-[9px] uppercase font-mono text-zinc-500 font-semibold block">Audit Storage</span>
+                            <span class="text-xs font-mono text-zinc-200">SQLite (events.db)</span>
+                        </div>
+                    </div>
+                    <div class="pt-1 text-[11px] text-zinc-500 font-mono flex items-center justify-between border-t border-zinc-800">
+                        <span>LICENSE: MIT</span>
+                        <span>BUILD: v1.0.0-PROD</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- App State JavaScript -->
+    <script>
+        function dashboardApp() {
+            return {
+                activeTab: 'logs',
+                botStatus: { status: 'LOADING', error_message: null, bot_info: {} },
+                stats: { total_scans: 0, total_threats: 0, total_files: 0, total_urls: 0 },
+                events: [],
+                config: {},
+                saving: false,
+                testingTG: false,
+                testingVT: false,
+                tgTestResult: null,
+                vtTestResult: null,
+
+                async init() {
+                    await this.fetchStatus();
+                    await this.fetchConfig();
+                    await this.fetchLogs();
+                    // Auto-refresh poll every 5 seconds
+                    setInterval(() => {
+                        this.fetchStatus();
+                        if (this.activeTab === 'logs') {
+                            this.fetchLogs();
+                        }
+                    }, 5000);
+                },
+
+                async fetchStatus() {
+                    try {
+                        const res = await fetch('/api/status');
+                        const data = await res.json();
+                        this.botStatus = data.bot;
+                        this.stats = data.stats;
+                    } catch (e) {
+                        console.error("Status fetch error", e);
+                    }
+                },
+
+                async fetchConfig() {
+                    try {
+                        const res = await fetch('/api/config');
+                        this.config = await res.json();
+                    } catch (e) {
+                        console.error("Config fetch error", e);
+                    }
+                },
+
+                async fetchLogs() {
+                    try {
+                        const res = await fetch('/api/events?limit=50');
+                        const data = await res.json();
+                        this.events = data.events;
+                    } catch (e) {
+                        console.error("Logs fetch error", e);
+                    }
+                },
+
+                async saveConfiguration() {
+                    this.saving = true;
+                    try {
+                        const res = await fetch('/api/config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(this.config)
+                        });
+                        const data = await res.json();
+                        await this.fetchStatus();
+                        alert("Settings applied and bot restarted successfully.");
+                    } catch (e) {
+                        alert("Failed to save configuration: " + e);
+                    } finally {
+                        this.saving = false;
+                    }
+                },
+
+                async testTelegram() {
+                    this.testingTG = true;
+                    this.tgTestResult = null;
+                    try {
+                        const res = await fetch('/api/test/telegram', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ token: this.config.telegram_bot_token })
+                        });
+                        this.tgTestResult = await res.json();
+                    } catch (e) {
+                        this.tgTestResult = { valid: false, error: String(e) };
+                    } finally {
+                        this.testingTG = false;
+                    }
+                },
+
+                async testVirusTotal() {
+                    this.testingVT = true;
+                    this.vtTestResult = null;
+                    try {
+                        const res = await fetch('/api/test/virustotal', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ api_key: this.config.virustotal_api_key })
+                        });
+                        const data = await res.json();
+                        this.vtTestResult = data;
+                    } catch (e) {
+                        this.vtTestResult = { valid: false, error: String(e) };
+                    } finally {
+                        this.testingVT = false;
+                    }
+                },
+
+                async triggerBot(action) {
+                    try {
+                        await fetch('/api/bot/action', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: action })
+                        });
+                        await this.fetchStatus();
+                    } catch (e) {
+                        alert("Bot action error: " + e);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>
